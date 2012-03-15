@@ -4,25 +4,6 @@ require 'spec_helper'
 
 describe RecordCache::Strategy::Util do
 
-  it "should serialize a record (currently Active Record only)" do
-    subject.serialize(Banana.find(1)).should == {:a=>{"name"=>"Blue Banana 1", "id"=>1, "store_id"=>2, "person_id"=>4}, :c=>"Banana"}
-  end
-
-  it "should deserialize a record (currently Active Record only)" do
-    subject.deserialize({:a=>{"name"=>"Blue Banana 1", "id"=>1, "store_id"=>2, "person_id"=>4}, :c=>"Banana"}).should == Banana.find(1)
-  end
-
-  it "should call the after_finalize and after_find callbacks when deserializing a record" do
-    record = subject.deserialize({:a=>{"name"=>"Blue Banana 1", "id"=>1, "store_id"=>2, "person_id"=>4}, :c=>"Banana"})
-    record.logs.sort.should == ["after_find", "after_initialize"]
-  end
-
-  it "should not be a new record nor have changed attributes after deserializing a record" do
-    record = subject.deserialize({:a=>{"id"=>1}, :c=>"Banana"})
-    record.new_record?.should be_false
-    record.changed_attributes.should be_empty
-  end
-
   context "filter" do
     it "should apply filter" do
       apples = Apple.where(:id => [1,2]).all

@@ -44,7 +44,7 @@ module RecordCache
         else
           # update the version store and add the record to the cache
           new_version = version_store.increment(key)
-          record_store.write(versioned_key(key, new_version), Util.serialize(record))
+          record_store.write(versioned_key(key, new_version), record)
         end
       end
 
@@ -83,8 +83,7 @@ module RecordCache
 
       # retrieve the records from the cache with the given keys
       def from_cache(id_to_versioned_key_map)
-        records = record_store.read_multi(*(id_to_versioned_key_map.values)).values.compact
-        records.map{ |record| Util.deserialize(record) }
+        record_store.read_multi(*(id_to_versioned_key_map.values)).values.compact
       end
     
       # retrieve the records with the given ids from the database
@@ -100,7 +99,7 @@ module RecordCache
               versioned_key = versioned_key(key, version_store.renew(key))
             end
             # store the record based on the versioned key
-            record_store.write(versioned_key, Util.serialize(record))
+            record_store.write(versioned_key, record)
           end
           records
         end

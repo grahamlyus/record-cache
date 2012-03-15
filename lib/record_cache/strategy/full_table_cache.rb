@@ -53,8 +53,7 @@ module RecordCache
 
       # retrieve the records from the cache with the given keys
       def from_cache(key, version)
-        records = record_store.read(versioned_key(key, version))
-        records.map{ |record| Util.deserialize(record) } if records
+        record_store.read(versioned_key(key, version))
       end
     
       # retrieve the records with the given ids from the database
@@ -63,7 +62,7 @@ module RecordCache
           # retrieve the records from the database
           records = @base.all.to_a
           # write all records to the cache
-          record_store.write(versioned_key(key, version), records.map{ |record| Util.serialize(record) })
+          record_store.write(versioned_key(key, version), records)
           records
         end
       end
