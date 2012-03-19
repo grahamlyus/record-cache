@@ -41,5 +41,10 @@ ActiveRecord::Schema.define :version => 1 do
   Pear.create!(:name => "Blue Pear 3", :store => @blue_fruits, :person => @chase)
   Pear.create!(:name => "Blue Pear 4", :store => @blue_fruits, :person => @chase)
 
+  Orange.create!(:name => "Blue Orange 1", :store => @blue_fruits)
+  Orange.create!(:name => "Blue Orange 2", :store => @blue_fruits, :person => @fry)
+  Orange.create!(:name => "Blue Orange 3", :store => @blue_fruits, :person => @chase)
+  Orange.create!(:name => "Blue Orange 4", :store => @blue_fruits, :person => @chase)
+
   RecordCache::Base.enable
 end

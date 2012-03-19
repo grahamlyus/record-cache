@@ -7,6 +7,11 @@ describe RecordCache::Strategy::UniqueIndexCache do
     lambda{ Apple.find(1) }.should hit_cache(Apple).on(:id).times(1)
   end
 
+  it "should retrieve an Apple from the cache by String id" do
+    lambda{ Apple.find(1) }.should miss_cache(Apple).on(:id).times(1)
+    lambda{ Apple.find("1") }.should hit_cache(Apple).on(:id).times(1)
+  end
+
   it "should retrieve cloned records" do
     @apple_1a = Apple.find(1)
     @apple_1b = Apple.find(1)
