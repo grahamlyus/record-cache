@@ -19,13 +19,8 @@ module RecordCache
         version_store.delete(cache_key(FULL_TABLE))
       end
 
-      # Handle invalidation call
-      def invalidate(id)
-        version_store.delete(cache_key(FULL_TABLE))
-      end
-  
       protected
-  
+
       # retrieve the record(s) with the given id(s) as an array
       def fetch_records(query)
         key = cache_key(FULL_TABLE)
@@ -46,16 +41,20 @@ module RecordCache
         # return the array
         records
       end
-  
+
+      def cache_key(id)
+        super(FULL_TABLE)
+      end
+
       private
-  
+
       # ---------------------------- Querying ------------------------------------
 
       # retrieve the records from the cache with the given keys
       def from_cache(key, version)
         record_store.read(versioned_key(key, version))
       end
-    
+
       # retrieve the records with the given ids from the database
       def from_db(key, version)
         RecordCache::Base.without_record_cache do
@@ -66,9 +65,9 @@ module RecordCache
           records
         end
       end
-  
+
       # ------------------------- Utility methods ----------------------------
-  
+
       # log cache hit/miss to debug log
       def log_full_table_cache_hit(key, records)
         hit = records ? "hit" : "miss"
