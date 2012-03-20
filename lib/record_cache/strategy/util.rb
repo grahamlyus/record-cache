@@ -13,6 +13,9 @@ module RecordCache
         def filter!(records, wheres)
           wheres.each_pair do |attr, value|
             attr = attr.to_sym
+            if attr == :id
+              value = value.is_a?(Array) ? value.map(&:to_i) : value.to_i
+            end
             if value.is_a?(Array)
               records.reject! { |record| !value.include?(record.send(attr)) }
             else
