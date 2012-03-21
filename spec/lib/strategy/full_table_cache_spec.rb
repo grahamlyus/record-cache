@@ -38,4 +38,30 @@ describe RecordCache::Strategy::FullTableCache do
   end
 
 
+  context "record_change" do
+    before(:each) do
+      # fill cache
+      @orange1 = Orange.find(1)
+    end
+
+    it "should invalidate updated records" do
+      @orange1.name = 'new name'
+      @orange1.save!     
+      lambda{ Orange.where(:id => 1).all }.should miss_cache(Orange).on(:full_table).times(1)
+      lambda{ Orange.where(:id => 1).all }.should hit_cache(Orange).on(:full_table).times(1)    
+    end
+
+    it "should invalidate created records" do
+      Orange.create!(:name => 'new name')
+      lambda{ Orange.where(:id => 1).all }.should miss_cache(Orange).on(:full_table).times(1)
+      lambda{ Orange.where(:id => 1).all }.should hit_cache(Orange).on(:full_table).times(1)    
+    end
+
+    it "should invalidate destroyed records" do
+      @orange1.destroy
+      lambda{ Orange.where(:id => 1).all }.should miss_cache(Orange).on(:full_table).times(1)
+      lambda{ Orange.where(:id => 1).all }.should hit_cache(Orange).on(:full_table).times(1)
+    end
+  end
+
 end
