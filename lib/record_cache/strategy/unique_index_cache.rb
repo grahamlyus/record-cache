@@ -36,16 +36,18 @@ module RecordCache
         values && (query.limit.nil? || (query.limit == 1 && values.size == 1))
       end
 
-      # Update the version store and the record store
+      # Update the record store
       def record_change(record, action)
         key = cache_key(record.send(@attribute))
         if action == :destroy
-          version_store.delete(key)
+          record_store.delete(key)
         else
-          # update the version store and add the record to the cache
-          new_version = version_store.increment(key)
-          record_store.write(versioned_key(key, new_version), record)
+          record_store.write(key, record)
         end
+      end
+
+      def invalidate(id)
+        record_store.delete(cache_key(id))
       end
 
       protected
@@ -55,19 +57,15 @@ module RecordCache
         ids = query.where_values(@attribute, @type)
         query.wheres.delete(@attribute) # make sure CacheCase.filter! does not see this where anymore
         id_to_key_map = ids.inject({}){|h,id| h[id] = cache_key(id); h }
-        # retrieve the current version of the records
-        current_versions = version_store.current_multi(id_to_key_map)
-        # get the keys for the records for which a current version was found
-        id_to_version_key_map = Hash[id_to_key_map.map{ |id, key| current_versions[id] ? [id, versioned_key(key, current_versions[id])] : nil }]
         # retrieve the records from the cache
-        records = id_to_version_key_map.size > 0 ? from_cache(id_to_version_key_map) : []
+        records = from_cache(id_to_key_map)
         # query the records with missing ids
         id_to_key_map.except!(*records.map(&@attribute))
         # logging (only in debug mode!) and statistics
         log_id_cache_hit(ids, id_to_key_map.keys) if RecordCache::Base.logger.debug?
         statistics.add(ids.size, records.size) if statistics.active?
         # retrieve records from DB in case there are some missing ids
-        records += from_db(id_to_key_map, id_to_version_key_map) if id_to_key_map.size > 0
+        records += from_db(id_to_key_map) if id_to_key_map.size > 0
         # return the array
         records
       end
@@ -77,24 +75,19 @@ module RecordCache
       # ---------------------------- Querying ------------------------------------
 
       # retrieve the records from the cache with the given keys
-      def from_cache(id_to_versioned_key_map)
-        record_store.read_multi(*(id_to_versioned_key_map.values)).values.compact
+      def from_cache(id_to_key_map)
+        record_store.read_multi(*(id_to_key_map.values)).values.compact
       end
 
       # retrieve the records with the given ids from the database
-      def from_db(id_to_key_map, id_to_version_key_map)
+      def from_db(id_to_key_map)
         RecordCache::Base.without_record_cache do
           # retrieve the records from the database
           records = @base.where(@attribute => id_to_key_map.keys).to_a
           records.each do |record|
-            versioned_key = id_to_version_key_map[record.send(@attribute)]
-            unless versioned_key
-              # renew the key in the version store in case it was missing
-              key = id_to_key_map[record.send(@attribute)]
-              versioned_key = versioned_key(key, version_store.renew(key))
-            end
-            # store the record based on the versioned key
-            record_store.write(versioned_key, record)
+            key = id_to_key_map[record.send(@attribute)]
+            # store the record based on the key
+            record_store.write(key, record)
           end
           records
         end
