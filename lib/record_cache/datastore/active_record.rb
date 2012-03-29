@@ -7,5 +7,4 @@ ActiveRecord::Base.send(:include, RecordCache::Base)
 # some internal Active Record methods needs to be aliased.
 # The downside of using internal methods, is that they may change in different releases,
 # hence the following code:
-AR_VERSION = ActiveRecord::VERSION::MAJOR == 3 && ActiveRecord::VERSION::MINOR == 0 ? 30 : 31
-require File.dirname(__FILE__) + "/active_record_#{AR_VERSION}.rb"
+require File.dirname(__FILE__) + "/active_record_#{ActiveRecord::VERSION::MAJOR}#{ActiveRecord::VERSION::MINOR}.rb"
