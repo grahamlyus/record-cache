@@ -33,10 +33,6 @@ module RecordCache
         records ||= from_db(key)
       end
 
-      def cache_key(id)
-        super(FULL_TABLE)
-      end
-
       private
 
       # ---------------------------- Querying ------------------------------------
