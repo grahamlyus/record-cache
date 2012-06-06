@@ -6,7 +6,7 @@ module RecordCache
       # parse the options and return (an array of) instances of this strategy
       def self.parse(base, record_store, options)
         return nil unless options[:full_table]
-        FulltableCache.new(base, :full_table, record_store, options)
+        FullTableCache.new(base, :full_table, record_store, options)
       end
 
       # Can the cache retrieve the records based on this query?
