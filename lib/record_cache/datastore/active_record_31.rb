@@ -200,6 +200,8 @@ module RecordCache
       alias :visit_Arel_Attributes_Boolean   :visit_Arel_Attributes_Attribute
 
       def visit_Arel_Nodes_Equality o
+        return unless o.left.relation.name == @table_name
+
         key, value = visit(o.left), visit(o.right)
         # both ? and \u0000 are used to mark query bindings (thanks to Arkadiusz Kuryłowicz for the \u0000)
         if value.to_s == BINDING_MARKER_1 || value.to_s == BINDING_MARKER_2
