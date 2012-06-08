@@ -39,6 +39,13 @@ ActiveRecord::Schema.define :version => 0 do
     t.integer :person_id
   end
 
+  create_table :oranges, :force => true do |t|
+    t.integer :id
+    t.string  :name
+    t.integer :store_id
+    t.integer :person_id
+  end
+
   create_table :addresses, :force => true do |t|
     t.integer :id
     t.string  :name

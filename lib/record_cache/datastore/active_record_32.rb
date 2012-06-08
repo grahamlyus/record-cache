@@ -23,27 +23,21 @@ module RecordCache
         end
 
         # Retrieve the records, possibly from cache
-        def find_by_sql_with_record_cache(sql)
+        def find_by_sql_with_record_cache(sql, binds = [])
           # shortcut, no caching please
-          return find_by_sql_without_record_cache(sql) unless record_cache?
+          return find_by_sql_without_record_cache(sql, binds) unless record_cache?
 
-          arel = sql.instance_variable_get(:@arel)
-          sanitized_sql = sanitize_sql(sql)
-
-          records = if connection.instance_variable_get(:@query_cache_enabled)
-            query_cache = connection.instance_variable_get(:@query_cache)
-            query_cache["rc/#{sanitized_sql}"] ||= try_record_cache(sanitized_sql, arel)
+          records = if connection.query_cache_enabled
+            connection.query_cache["rc/#{connection.to_sql(sql)}"][binds] ||= try_record_cache(sql, binds)
           else
-            try_record_cache(sanitized_sql, arel)
+            try_record_cache(sql, binds)
           end
-          records.collect! { |record| instantiate(record) } if records[0].is_a?(Hash)
-          records
         end
 
-        def try_record_cache(sql, arel)
-          query = arel ? RecordCache::Arel::QueryVisitor.new.accept(arel.ast) : nil
+        def try_record_cache(sql, binds)
+          query = RecordCache::Arel::QueryVisitor.new(binds).accept(sql.ast)
           record_cache.fetch(query) do
-            connection.send(:select, sql, "#{name} Load")
+            find_by_sql_without_record_cache(sql, binds)
           end
         end
 
@@ -83,8 +77,14 @@ module RecordCache
     # Only accepts single select queries with equality where statements
     # Rejects queries with grouping / having / offset / etc.
     class QueryVisitor < ::Arel::Visitors::Visitor
-      def initialize
+      DESC = "DESC".freeze
+      BINDING_MARKER_1 = "?".freeze
+      BINDING_MARKER_2 = "\u0000".freeze
+      COMMA = ",".freeze
+
+      def initialize(bindings)
         super()
+        @bindings = (bindings || []).inject({}){ |h, cv| column, value = cv; h[column.name] = value; h}
         @cacheable  = true
         @query = ::RecordCache::Query.new
       end
@@ -142,10 +142,10 @@ module RecordCache
 
       def visit_Arel_Nodes_Grouping o
         return unless @cacheable
-        # "`calendars`.account_id = 5"
+        # `calendars`.account_id = 5
         if @table_name && o.expr =~ /^`#{@table_name}`\.`?(\w*)`?\s*=\s*(\d+)$/
           @cacheable = @query.where($1, $2.to_i)
-        # "`service_instances`.`id` IN (118,80,120,82)"
+        # `service_instances`.`id` IN (118,80,120,82)
         elsif o.expr =~ /^`#{@table_name}`\.`?(\w*)`?\s*IN\s*\(([\d\s,]+)\)$/
           @cacheable = @query.where($1, $2.split(',').map(&:to_i))
         else
@@ -171,10 +171,10 @@ module RecordCache
       end
 
       def handle_order_by(order)
-        order.to_s.split(",").each do |o|
+        order.to_s.split(COMMA).each do |o|
           # simple sort order (+peope.id+ can be replaced by +id+, as joins are not allowed anyways)
           if o.match(/^\s*([\w\.]*)\s*(|ASC|DESC|)\s*$/)
-            asc = $2 == "DESC" ? false : true
+            asc = $2 == DESC ? false : true
             @query.order_by($1.split('.').last, asc)
           else
             @cacheable = false
@@ -201,7 +201,12 @@ module RecordCache
 
       def visit_Arel_Nodes_Equality o
         key, value = visit(o.left), visit(o.right)
-#        p "  =====> equality found: #{key.inspect}@#{key.class.name} => #{value.inspect}@#{value.class.name}"
+        # both ? and \u0000 are used to mark query bindings (thanks to Arkadiusz Kuryłowicz for the \u0000)
+        if value.to_s == BINDING_MARKER_1 || value.to_s == BINDING_MARKER_2
+          # puts "bindings: #{@bindings.inspect}, key = #{key.to_s}"
+          value = @bindings[key.to_s] || value
+        end
+        # puts "  =====> equality found: #{key.inspect}@#{key.class.name} => #{value.inspect}@#{value.class.name}"
         @query.where(key, value)
       end
       alias :visit_Arel_Nodes_In                 :visit_Arel_Nodes_Equality
@@ -318,12 +323,39 @@ module RecordCache
       end
 
       module InstanceMethods
-        def delete_records_with_record_cache(records)
+        def delete_records_with_record_cache(records, method)
           # invalidate :id cache for all records
           records.each{ |record| record.class.record_cache.invalidate(record.id) if record.class.record_cache? unless record.new_record? }
           # invalidate the referenced class for the attribute/value pair on the index cache
-          @reflection.klass.record_cache.invalidate(@reflection.primary_key_name.to_sym, @owner.id) if @reflection.klass.record_cache?
-          delete_records_without_record_cache(records)
+          @reflection.klass.record_cache.invalidate(@reflection.foreign_key.to_sym, @owner.id) if @reflection.klass.record_cache?
+          delete_records_without_record_cache(records, method)
+        end
+      end
+    end
+
+    module HasOne
+      class << self
+        def included(klass)
+          klass.extend ClassMethods
+          klass.send(:include, InstanceMethods)
+          klass.class_eval do
+            alias_method_chain :delete, :record_cache
+          end
+        end
+      end
+
+      module ClassMethods
+      end
+
+      module InstanceMethods
+        def delete_with_record_cache(method = options[:dependent])
+          # invalidate :id cache for all record
+          if load_target
+            target.class.record_cache.invalidate(target.id) if target.class.record_cache? unless target.new_record?
+          end
+          # invalidate the referenced class for the attribute/value pair on the index cache
+          @reflection.klass.record_cache.invalidate(@reflection.foreign_key.to_sym, @owner.id) if @reflection.klass.record_cache?
+          delete_without_record_cache(method)
         end
       end
     end
@@ -332,6 +364,6 @@ module RecordCache
 end
 
 ActiveRecord::Base.send(:include, RecordCache::ActiveRecord::Base)
-Arel::TreeManager.send(:include, RecordCache::Arel::TreeManager)
 ActiveRecord::Relation.send(:include, RecordCache::ActiveRecord::UpdateAll)
 ActiveRecord::Associations::HasManyAssociation.send(:include, RecordCache::ActiveRecord::HasMany)
+ActiveRecord::Associations::HasOneAssociation.send(:include, RecordCache::ActiveRecord::HasOne)

@@ -1,7 +1,7 @@
 module RecordCache
   module Strategy
     class UniqueIndexCache < Base
-      
+
       # All attributes with a unique index for the given model
       def self.attributes(base)
         (@attributes ||= {})[base.name] ||= []
@@ -11,7 +11,7 @@ module RecordCache
       def self.parse(base, record_store, options)
         attributes = [options[:unique_index]].flatten.compact
         # add unique index for :id by default
-        attributes << :id if base.columns_hash['id'] unless base.record_cache[:id] 
+        attributes << :id if base.columns_hash['id'] unless base.record_cache[:id]
         return nil if attributes.empty?
         attributes.map do |attribute|
           type = base.columns_hash[attribute.to_s].try(:type)
@@ -36,83 +36,70 @@ module RecordCache
         values && (query.limit.nil? || (query.limit == 1 && values.size == 1))
       end
 
-      # Update the version store and the record store
+      # Update the record store
       def record_change(record, action)
         key = cache_key(record.send(@attribute))
         if action == :destroy
-          version_store.delete(key)
+          record_store.delete(key)
         else
-          # update the version store and add the record to the cache
-          new_version = version_store.increment(key)
-          record_store.write(versioned_key(key, new_version), Util.serialize(record))
+          record_store.write(key, record)
         end
       end
 
-      # Handle invalidation call
       def invalidate(id)
-        version_store.delete(cache_key(@type == :integer ? id.to_i : id.to_s))
+        record_store.delete(cache_key(id))
       end
-  
+
       protected
-  
+
       # retrieve the record(s) with the given id(s) as an array
       def fetch_records(query)
         ids = query.where_values(@attribute, @type)
         query.wheres.delete(@attribute) # make sure CacheCase.filter! does not see this where anymore
         id_to_key_map = ids.inject({}){|h,id| h[id] = cache_key(id); h }
-        # retrieve the current version of the records
-        current_versions = version_store.current_multi(id_to_key_map)
-        # get the keys for the records for which a current version was found
-        id_to_version_key_map = Hash[id_to_key_map.map{ |id, key| current_versions[id] ? [id, versioned_key(key, current_versions[id])] : nil }]
         # retrieve the records from the cache
-        records = id_to_version_key_map.size > 0 ? from_cache(id_to_version_key_map) : []
+        records = from_cache(id_to_key_map)
         # query the records with missing ids
         id_to_key_map.except!(*records.map(&@attribute))
         # logging (only in debug mode!) and statistics
         log_id_cache_hit(ids, id_to_key_map.keys) if RecordCache::Base.logger.debug?
         statistics.add(ids.size, records.size) if statistics.active?
         # retrieve records from DB in case there are some missing ids
-        records += from_db(id_to_key_map, id_to_version_key_map) if id_to_key_map.size > 0
+        records += from_db(id_to_key_map) if id_to_key_map.size > 0
         # return the array
         records
       end
-  
+
       private
-  
+
       # ---------------------------- Querying ------------------------------------
 
       # retrieve the records from the cache with the given keys
-      def from_cache(id_to_versioned_key_map)
-        records = record_store.read_multi(*(id_to_versioned_key_map.values)).values.compact
-        records.map{ |record| Util.deserialize(record) }
+      def from_cache(id_to_key_map)
+        record_store.read_multi(*(id_to_key_map.values)).values.compact
       end
-    
+
       # retrieve the records with the given ids from the database
-      def from_db(id_to_key_map, id_to_version_key_map)
+      def from_db(id_to_key_map)
         RecordCache::Base.without_record_cache do
           # retrieve the records from the database
           records = @base.where(@attribute => id_to_key_map.keys).to_a
           records.each do |record|
-            versioned_key = id_to_version_key_map[record.send(@attribute)]
-            unless versioned_key
-              # renew the key in the version store in case it was missing
-              key = id_to_key_map[record.send(@attribute)]
-              versioned_key = versioned_key(key, version_store.renew(key))
-            end
-            # store the record based on the versioned key
-            record_store.write(versioned_key, Util.serialize(record))
+            key = id_to_key_map[record.send(@attribute)]
+            # store the record based on the key
+            record_store.write(key, record)
           end
           records
         end
       end
-  
+
       # ------------------------- Utility methods ----------------------------
-  
+
       # log cache hit/miss to debug log
       def log_id_cache_hit(ids, missing_ids)
         hit = missing_ids.empty? ? "hit" : ids.size == missing_ids.size ? "miss" : "partial hit"
         missing = missing_ids.empty? || ids.size == missing_ids.size ? "" : ": missing #{missing_ids.inspect}"
-        msg = "UniqueIndexCache on '#{@attribute}' #{hit} for ids #{ids.size == 1 ? ids.first.inspect : ids.inspect}#{missing}"
+        msg = "UniqueIndexCache on '#{@base.name}.#{@attribute}' #{hit} for #{ids.size == 1 ? "id #{ids.first.inspect}" : "ids #{ids.inspect}"}#{missing}"
         RecordCache::Base.logger.debug(msg)
       end
 
